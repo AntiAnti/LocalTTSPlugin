@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--vosk toolkit additions-->
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+	<!-- init section is always evaluated once per architecture -->
+	<init>
+		<log text="AndroidBackgroundServices init"/>
+	</init>
+	
+	<androidManifestUpdates>
+		<removePermission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+		<removePermission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+		<addPermission
+			android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+			android:maxSdkVersion="18" />			
+		<addPermission
+			android:name="android.permission.READ_EXTERNAL_STORAGE"
+			android:maxSdkVersion="18" />			
+	</androidManifestUpdates>
+
+    <!-- optional files or directories to copy to Intermediate/Android/APK -->
+    <resourceCopies>
+        <log text="Vosk UPL copying files for $S(Architecture)"/>
+        <copyFile src="$S(PluginDir)/../ThirdParty/espeak/Binaries/Android/$S(Architecture)/libttsespeak.so"
+                    dst="$S(BuildDir)/libs/$S(Architecture)/libttsespeak.so" />
+	</resourceCopies>
+	
+	<!-- optional libraries to load in GameActivity.java before libUnreal.so -->
+	<soLoadLibrary>
+		<loadLibrary name="lttsespeak" failmsg="espeak library not loaded and required!" />
+	</soLoadLibrary>
+</root>

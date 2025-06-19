@@ -1,0 +1,44 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Local Text-to-Speech",
+	"Description": "Offline text to speech synthesis using free neural nets in ONNX format. Supports Piper, Kokoro.",
+	"Category": "Audio",
+	"CreatedBy": "YuriNK",
+	"CreatedByURL": "ykasczc@gmail.com",
+	"DocsURL": "https://www.youtube.com/watch?v=2a3ntOeoi8o",
+	"MarketplaceURL": "com.epicgames.launcher://ue/Fab/product/013543b8-b5d1-482b-87cd-66be0559c361",
+	"FabURL" : "com.epicgames.launcher://ue/Fab/product/013543b8-b5d1-482b-87cd-66be0559c361",
+	"SupportURL": "ykasczc@gmail.com",
+	"EngineVersion": "5.5.0",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "LocalTTS",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": [
+				"Win64",
+				"Android"
+			]
+		},
+		{
+			"Name": "LocalTTSEditor",
+			"Type": "UncookedOnly",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": [
+				"Win64"
+			]
+		}		
+	],
+	"Plugins": [
+		{
+			"Name": "NNERuntimeORT",
+			"Enabled": true
+		}
+	]
+}
