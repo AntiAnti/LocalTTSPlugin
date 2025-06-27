@@ -10,7 +10,7 @@ You are NOT allowed to:
 - Use this plugin in any commercial product or service.
 - Sell, sublicense, or include this plugin in paid software, games, or content.
 - Use this plugin in projects that generate revenue, directly or indirectly.
-- This version uses dynamically linked espeak-ng library for phonemization. Check espeak license (GNU-3) for more info.
+- This version uses dynamically linked espeak-ng library for phonemization. Check [espeak license](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING) for more info.
 
 Commercial use requires a separate commercial license.  
 To obtain one, go to Fab.
