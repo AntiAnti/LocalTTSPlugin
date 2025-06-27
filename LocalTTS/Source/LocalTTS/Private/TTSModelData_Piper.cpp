@@ -6,6 +6,7 @@
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
 //#include "HAL/FileManager.h"
+#include "LocalTTSFunctionLibrary.h"
 #include "Dom/JsonValue.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
@@ -97,11 +98,6 @@ bool UTTSModelData_Piper::SetNNEInputParams(FNNEModelTTS& NNModel, const FTTSGen
         UE_LOG(LogTemp, Warning, TEXT("Invalid input tensor parameters at ONNX TTS model"));
         return false;
     }
-    if (Context.SpeakerId != INDEX_NONE && !NNModel.CheckInParam(3, ENNETensorDataType::Int64))
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Invalid input tensor parameters at ONNX TTS model"));
-        return false;
-    }
     if (!Context.Tokens)
     {
         UE_LOG(LogTemp, Warning, TEXT("Invalid input tokens"));
@@ -109,30 +105,13 @@ bool UTTSModelData_Piper::SetNNEInputParams(FNNEModelTTS& NNModel, const FTTSGen
     }
 
     int32 TokensNum = Context.Tokens->Num();
-    TArray<UE::NNE::FTensorShape> InputShapes;
 
-    // inputs
-    TArray<int64>& Inputs = NNModel.GetInParamIntUnsafe(0);
-    Inputs.SetNumUninitialized(TokensNum);
-    FMemory::Memcpy(Inputs.GetData(), Context.Tokens->GetData(), TokensNum * (int32)sizeof(int64));
-    InputShapes.Add(UE::NNE::FTensorShape::Make({ 1, (uint32)Inputs.Num() }));
-    NNModel.InputBindings[0].SizeInBytes = (uint64)Inputs.Num() * sizeof(int64);
-    NNModel.InputBindings[0].Data = Inputs.GetData();
-
+    // inputs: tokenized phonemes
+    NNModel.PrepareInputInt64(0, *Context.Tokens, { 1, (uint32)TokensNum });
     // input_lengths
-    TArray<int64>& InputLengths = NNModel.GetInParamIntUnsafe(1);
-    InputLengths.SetNumUninitialized(1);
-    InputLengths[0] = TokensNum;
-    InputShapes.Add(UE::NNE::FTensorShape::Make({ 1 }));
-    NNModel.InputBindings[1].SizeInBytes = (uint64)1 * sizeof(int64);
-    NNModel.InputBindings[1].Data = InputLengths.GetData();
-
+    NNModel.PrepareInputInt64(1, { TokensNum }, { 1 });
     // scale
-    TArray<float>& Scales = NNModel.GetInParamFloatUnsafe(2);
-    Scales = { NoiseScale, Speed, NoiseW };
-    InputShapes.Add(UE::NNE::FTensorShape::Make({ 3 }));
-    NNModel.InputBindings[2].SizeInBytes = (uint64)3 * sizeof(float);
-    NNModel.InputBindings[2].Data = Scales.GetData();
+    NNModel.PrepareInputFloat(2, { NoiseScale, Speed, NoiseW }, { 3 });
 
     // sID
     if (Speakers.Num() > 0)
@@ -145,21 +124,15 @@ bool UTTSModelData_Piper::SetNNEInputParams(FNNEModelTTS& NNModel, const FTTSGen
             MaxVal = FMath::Max(MaxVal, s.Value);
         }
 
-        TArray<int64>& sID = NNModel.GetInParamIntUnsafe(3);
-        sID = { FMath::Clamp(Context.SpeakerId, MinVal, MaxVal) };
-        InputShapes.Add(UE::NNE::FTensorShape::Make({ 1 }));
-        NNModel.InputBindings[3].SizeInBytes = (uint64)1 * sizeof(int64);
-        NNModel.InputBindings[3].Data = sID.GetData();
+        NNModel.PrepareInputInt64(3, { FMath::Clamp(Context.SpeakerId, MinVal, MaxVal) }, { 1 });
     }
 
-    NNModel.ModelInstance->SetInputTensorShapes(InputShapes);
     return true;
 }
 
+// Normalize and convert to 16bit
 void UTTSModelData_Piper::PostProcessNND(FSynthesisResult& SynthesisData) const
 {
-    // Normalize and convert to 16bit
-
     const float MAX_WAV_VALUE = 32767.0f;
 
     // Get max audio value for scaling
@@ -200,7 +173,6 @@ void UTTSModelData_Piper::ImportFromFile(const FString& FileName)
     if (!JsonRootObject->HasTypedField<EJson::Object>(TEXT("audio")) ||
         !JsonRootObject->HasTypedField<EJson::Object>(TEXT("espeak")) ||
         !JsonRootObject->HasTypedField<EJson::Object>(TEXT("inference")) ||
-        //!JsonRootObject->HasTypedField<EJson::String>(TEXT("phoneme_type")) ||
         !JsonRootObject->HasTypedField<EJson::Object>(TEXT("phoneme_id_map")) ||
         !JsonRootObject->HasTypedField<EJson::Number>(TEXT("num_speakers")) ||
         !JsonRootObject->HasTypedField<EJson::Object>(TEXT("speaker_id_map")) ||

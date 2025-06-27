@@ -1,4 +1,4 @@
-// (c) Yuri N. K. 2024. All rights reserved.
+// (c) Yuri N. K. 2025. All rights reserved.
 // ykasczc@gmail.com
 
 #pragma once
@@ -45,7 +45,6 @@ public:
 	//~ Begin USoundWave Interface.
 	virtual int32 GeneratePCMData(uint8* PCMData, const int32 SamplesNeeded) override;
 	virtual bool HasCompressedData(FName Format, ITargetPlatform* TargetPlatform) const override;
-
 	virtual void BeginGetCompressedData(FName Format, const FPlatformAudioCookOverrides* CompressionOverrides, const ITargetPlatform* InTargetPlatform) override;
 	virtual FByteBulkData* GetCompressedData(FName Format, const FPlatformAudioCookOverrides* CompressionOverrides, const ITargetPlatform* InTargetPlatform) override;
 	virtual void InitAudioResource(FByteBulkData& CompressedData) override;

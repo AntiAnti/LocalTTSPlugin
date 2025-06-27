@@ -4,6 +4,9 @@
 #include "TTSModelData_Base.h"
 #include "Modules/ModuleManager.h"
 #include "LocalTTSModule.h"
+#include "LocalTTSSubsystem.h"
+#include "Phonemizer.h"
+#include "Engine/Engine.h"
 //#include "espeak-ng/speak_lib.h"
 #include "uni_algo.h"
 
@@ -33,16 +36,36 @@
 * While it provides better quality of the audio, currenly it support 8 languages, and piper supports 36 languages.
 */
 
-bool UTTSModelData_Base::PhonemizeText(const FString& InText, FString& OutText, int32 SpeakerId, TArray<TArray<Piper::PhonemeUtf8>>& Phonemes)
+UTTSModelData_Base::UTTSModelData_Base()
+{
+#if ESPEAK_NG
+    PhonemizationType = ETTSPhonemeType::PT_eSpeak;
+#else
+    PhonemizationType = ETTSPhonemeType::PT_Dictionary;
+#endif
+}
+
+bool UTTSModelData_Base::PhonemizeText(const FString& InText, FString& OutText, int32 SpeakerId, TArray<TArray<Piper::PhonemeUtf8>>& Phonemes, bool bCastCharactersAsWords)
 {
     auto ModuleTts = FModuleManager::GetModulePtr<FLocalTTSModule>(TEXT("LocalTTS"));
     if (!ModuleTts->IsLoaded()) return false;
 
+    ULocalTTSSubsystem* LocalTTS = GEngine->GetEngineSubsystem<ULocalTTSSubsystem>();
+    UPhonemizer* Phonemizer = LocalTTS->GetPhonemizer();
+
     FString VoiceCode = GetEspeakCode(SpeakerId);
-    int32 Result = ModuleTts->func_espeak_SetVoiceByName(TCHAR_TO_ANSI(*VoiceCode));
+    int32 Result;
+    if (PhonemizationType == ETTSPhonemeType::PT_eSpeak)
+    {
+        Result = ModuleTts->func_espeak_SetVoiceByName(TCHAR_TO_ANSI(*VoiceCode));
+    }
+    else //if (PhonemizationType == ETTSPhonemeType::PT_NNM)
+    {
+        Result = Phonemizer->SetLanguageCodeFormatEspeak(VoiceCode, PhonemizationType == ETTSPhonemeType::PT_Dictionary) ? 0 : 1;
+    }
     if (Result != 0)
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to set eSpeak-ng voice: \"%s\" (default is %s)"), *VoiceCode, *ESpeakVoiceCode);
+        UE_LOG(LogTemp, Warning, TEXT("Failed to set phonemizer voice: \"%s\" (default is %s)"), *VoiceCode, *ESpeakVoiceCode);
         return false;
     }
 
@@ -50,18 +73,56 @@ bool UTTSModelData_Base::PhonemizeText(const FString& InText, FString& OutText, 
     std::string textCopy(TCHAR_TO_UTF8(*InText));
 
     TArray<Piper::PhonemeUtf8>* SentencePhonemes = nullptr;
+    // eSpeak
     const char* InputTextPointer = textCopy.c_str();
     int Terminator = 0;
+    // non-eSpeak
+    TArray<FString> WordsPhonemizedWithTerminators;
+    TSet<FString> Terminators = { TEXT("."), TEXT(","), TEXT("?"), TEXT("!") };
+    int32 InputWordIndex = 0;
+    FString TerminatorChar;
+    if (PhonemizationType != ETTSPhonemeType::PT_eSpeak)
+    {
+        Phonemizer->SyncPhonemizeText(InText.ToLower(), OutText, WordsPhonemizedWithTerminators, bCastCharactersAsWords);
+    }
 
     while (InputTextPointer != NULL)
     {
-        // Modified espeak-ng API to get access to clause terminator
-        std::string clausePhonemes(ModuleTts->func_espeak_TextToPhonemesWithTerminator((const void**)&InputTextPointer, /*textmode*/ espeakCHARS_AUTO, /*phonememode = IPA*/ 0x02, &Terminator));
+        std::string clausePhonemes;
+        if (PhonemizationType == ETTSPhonemeType::PT_eSpeak)
+        {
+            // Modified espeak-ng API to get access to clause terminator
+            std::string clausePhonemesRaw(ModuleTts->func_espeak_TextToPhonemesWithTerminator((const void**)&InputTextPointer, espeakCHARS_AUTO, 0x02, &Terminator));
+            clausePhonemes = clausePhonemesRaw;
 #if PLATFORM_ANDROID
-        char chrTerminator[2] = { '0', '0' };
-        clausePhonemes.append(chrTerminator);
+            char chrTerminator[2] = { '0', '0' };
+            clausePhonemes.append(chrTerminator);
 #endif
-        OutText.Append(UTF8_TO_TCHAR(clausePhonemes.c_str()));
+            OutText.Append(UTF8_TO_TCHAR(clausePhonemes.c_str()));
+        }
+        else //if (PhonemizationType == ETTSPhonemeType::PT_NNM)
+        {
+            FString NextWord = WordsPhonemizedWithTerminators[InputWordIndex].TrimEnd();
+            TerminatorChar = TEXT(" ");
+            for (const auto& t : Terminators)
+            {
+                if (NextWord.EndsWith(t))
+                {
+                    TerminatorChar = t; break;
+                }
+            }
+            if (NextWord.EndsWith(TerminatorChar))
+            {
+                NextWord.LeftChopInline(1);
+            }
+            std::string clausePhonemesRaw(TCHAR_TO_UTF8(*NextWord));
+            clausePhonemes = clausePhonemesRaw;
+
+            if (++InputWordIndex == WordsPhonemizedWithTerminators.Num())
+            {
+                InputTextPointer = NULL;
+            }
+        }
 
         auto PhonemesNorm = una::norm::to_nfd_utf8(clausePhonemes);
         auto PhonemesRange = una::ranges::utf8_view{ PhonemesNorm };
@@ -107,39 +168,75 @@ bool UTTSModelData_Base::PhonemizeText(const FString& InText, FString& OutText, 
         }
 
         // Add appropriate punctuation depending on terminator type
-        int punctuation = Terminator & 0x000FFFFF;
-        if (punctuation == CLAUSE_PERIOD)
+        if (PhonemizationType == ETTSPhonemeType::PT_eSpeak)
         {
-            SentencePhonemes->Add(P_Period);
-        }
-        else if (punctuation == CLAUSE_QUESTION)
-        {
-            SentencePhonemes->Add(P_Question);
-        }
-        else if (punctuation == CLAUSE_EXCLAMATION)
-        {
-            SentencePhonemes->Add(P_Exclamation);
-        }
-        else if (punctuation == CLAUSE_COMMA)
-        {
-            SentencePhonemes->Add(P_Comma);
-            SentencePhonemes->Add(P_Space);
-        }
-        else if (punctuation == CLAUSE_COLON)
-        {
-            SentencePhonemes->Add(P_Colon);
-            SentencePhonemes->Add(P_Space);
-        }
-        else if (punctuation == CLAUSE_SEMICOLON)
-        {
-            SentencePhonemes->Add(P_Semicolon);
-            SentencePhonemes->Add(P_Space);
-        }
+            int punctuation = Terminator & 0x000FFFFF;
+            if (punctuation == CLAUSE_PERIOD)
+            {
+                SentencePhonemes->Add(P_Period);
+            }
+            else if (punctuation == CLAUSE_QUESTION)
+            {
+                SentencePhonemes->Add(P_Question);
+            }
+            else if (punctuation == CLAUSE_EXCLAMATION)
+            {
+                SentencePhonemes->Add(P_Exclamation);
+            }
+            else if (punctuation == CLAUSE_COMMA)
+            {
+                SentencePhonemes->Add(P_Comma);
+                SentencePhonemes->Add(P_Space);
+            }
+            else if (punctuation == CLAUSE_COLON)
+            {
+                SentencePhonemes->Add(P_Colon);
+                SentencePhonemes->Add(P_Space);
+            }
+            else if (punctuation == CLAUSE_SEMICOLON)
+            {
+                SentencePhonemes->Add(P_Semicolon);
+                SentencePhonemes->Add(P_Space);
+            }
 
-        if ((Terminator & CLAUSE_TYPE_SENTENCE) == CLAUSE_TYPE_SENTENCE)
+            if ((Terminator & CLAUSE_TYPE_SENTENCE) == CLAUSE_TYPE_SENTENCE)
+            {
+                // End of sentence
+                SentencePhonemes = nullptr;
+            }
+        }
+        else // Dictionary, NNE
         {
-            // End of sentence
-            SentencePhonemes = nullptr;
+            if (TerminatorChar == TEXT("."))
+            {
+                SentencePhonemes->Add(P_Period);
+            }
+            else if (TerminatorChar == TEXT("?"))
+            {
+                SentencePhonemes->Add(P_Question);
+            }
+            else if (TerminatorChar == TEXT("!"))
+            {
+                SentencePhonemes->Add(P_Exclamation);
+            }
+            else if (TerminatorChar == TEXT(","))
+            {
+                SentencePhonemes->Add(P_Comma);
+                SentencePhonemes->Add(P_Space);
+            }
+            else if (TerminatorChar == TEXT(" "))
+            {
+                SentencePhonemes->Add(P_Space);
+            }
+
+            if (TerminatorChar != TEXT(",") && TerminatorChar != TEXT(" "))
+            {
+                if (!SentencePhonemes->IsEmpty())
+                {
+                    // End of sentence
+                    SentencePhonemes = nullptr;
+                }
+            }
         }
     } // while inputTextPointer != NULL
 

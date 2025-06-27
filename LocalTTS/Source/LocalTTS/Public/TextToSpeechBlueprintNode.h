@@ -25,6 +25,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Ynnk Recognize")
 	FAsyncTTSResult Succeed;
 
+	/* Output Pin: request complete */
 	UPROPERTY(BlueprintAssignable, Category = "Ynnk Recognize")
 	FAsyncTTSResult Failed;
 

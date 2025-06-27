@@ -54,36 +54,35 @@ FString FLocalTTSModule::GetContentPath()
 	return PluginContentDir;
 }
 
-#if PLATFORM_ANDROID
+#if !ESPEAK_NG
 int FLocalTTSModule::func_espeak_Initialize(espeak_AUDIO_OUTPUT output, int buflength, const char* path, int options)
 {
-	return espeak_Initialize(output, buflength, path, options);
+	return 0;// espeak_Initialize(output, buflength, path, options);
 }
 
 espeak_ERROR FLocalTTSModule::func_espeak_Terminate(void)
 {
-	return espeak_Terminate();
+	return espeak_ERROR::EE_NOT_FOUND;// espeak_Terminate();
 }
 
 espeak_ERROR FLocalTTSModule::func_espeak_SetVoiceByName(const char* name)
 {
-	return espeak_SetVoiceByName(name);
+	return espeak_ERROR::EE_NOT_FOUND;// espeak_SetVoiceByName(name);
 }
 
 const char* FLocalTTSModule::func_espeak_TextToPhonemesWithTerminator(const void** textptr, int textmode, int phonememode, int* terminator)
 {
-	//return espeak_TextToPhonemesWithTerminator(textptr, textmode, phonememode, terminator);
-	return espeak_TextToPhonemes(textptr, textmode, phonememode);
+	return nullptr; //espeak_TextToPhonemes(textptr, textmode, phonememode);
 }
 #endif
 
 void FLocalTTSModule::StartupModule()
 {
+#if ESPEAK_NG
 	FString PluginBinariesDir = GetBinariesPath();
 	UE_LOG(LogTemp, Log, TEXT("Espeak_ng Third-party DLLs Directory: %s"), *PluginBinariesDir);
 	FPlatformProcess::PushDllDirectory(*PluginBinariesDir);
 
-#if PLATFORM_WINDOWS
 	FString FilePath = PluginBinariesDir / TEXT("libespeak-ng.dll");
 
 	if (FPaths::FileExists(FilePath))
@@ -120,7 +119,7 @@ void FLocalTTSModule::StartupModule()
 			bLoaded = true;
 		}
 	}
-#elif PLATFORM_ANDROID
+#else
 	bLoaded = true;
 #endif
 }

@@ -19,14 +19,59 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FLocalTTSSynthesized, const FNNMIns
 DECLARE_DYNAMIC_DELEGATE_OneParam(FLocalTTSSynthesisResponse, USoundWave*, SoundWaveAsset);
 
 #if WITH_EDITOR
+#ifndef LOCALTTSUTILS
+#define LOCALTTSUTILS
 namespace LocalTtsUtils
 {
 	template<typename ElemType>
-	FString PrintArray(const TArray<ElemType>& InData);
+	LOCALTTS_API FString PrintArray(const TArray<ElemType>& InData)
+	{
+		FString s;
+		for (const auto& d : InData)
+		{
+			if (!s.IsEmpty())
+			{
+				s.Append(TEXT(", "));
+			}
+
+			if (typeid(d) == typeid(float))
+			{
+				s.Append(FString::SanitizeFloat(d));
+			}
+			else
+			{
+				s.Append(FString::FromInt(d));
+			}
+		}
+
+		return s;
+	}
 
 	template<typename ElemType>
-	FString PrintArray(const TArrayView<ElemType>& InData);
+	LOCALTTS_API FString PrintArray(const TArrayView<ElemType>& InData)
+	{
+		FString s;
+		for (const auto& d : InData)
+		{
+			if (!s.IsEmpty())
+			{
+				s.Append(TEXT(", "));
+			}
+
+			if (typeid(d) == typeid(float))
+			{
+				s.Append(FString::SanitizeFloat(d));
+			}
+			else
+			{
+				s.Append(FString::FromInt(d));
+			}
+		}
+
+		return s;
+	}
 }
+#endif
 #endif
 
 // Queue
@@ -49,7 +94,6 @@ struct FSynthesisQueue
 	FLocalTTSSynthesisResponse Callback;
 };
 
-
 /**
 * Core TTS subsystem to store loaded NN models and process audio generation
 */
@@ -65,6 +109,10 @@ public:
 	// Notifies new audio was generated
 	UPROPERTY(BlueprintAssignable, Category = "Local TTS")
 	FLocalTTSSynthesized OnGenerationResult;
+
+	// Init phonemizer backend
+	UFUNCTION(BlueprintCallable, Category = "Local TTS")
+	void InitializePhonemizer();
 
 	// Load TTS model from ONNX asset and corresponding TTSModelData asset
 	UFUNCTION()
@@ -92,8 +140,12 @@ public:
 	UFUNCTION()
 	bool ReleaseModel(const FNNMInstanceId& ModelTag);
 
+	inline class UPhonemizer* GetPhonemizer() const { return Phonemizer; }
+
 protected:
 	TMap<int32, FNNEModelTTS> VoiceModels;
+
+	TObjectPtr<class UPhonemizer> Phonemizer;
 
 	static FCriticalSection OnnxLoadMutex;
 	int32 OutputDataBufferSize = 32768*2;

@@ -47,9 +47,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tokenizer")
 	bool bAddEos = true;
 
+	// Generate chinese characters as separate words
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tokenizer")
+	bool bSplitChinese = true;
+
 	// UTTSModelData_Base implementation
 	virtual FString GetEspeakCode(int32 SpeakerId) const override;
-	virtual bool PhonemizeText(const FString& InText, FString& OutText, int32 SpeakerId, TArray<TArray<Piper::PhonemeUtf8>>& Phonemes) override;
+	virtual bool PhonemizeText(const FString& InText, FString& OutText, int32 SpeakerId, TArray<TArray<Piper::PhonemeUtf8>>& Phonemes, bool bCastCharactersAsWords) override;
 	virtual bool Tokenize(const TArray<Piper::PhonemeUtf8>& Phonemes, TArray<Piper::PhonemeId>& OutTokens, TMap<Piper::PhonemeUtf8, int32>& OutMissedPhonemes, bool bFirst, bool bLast) override;
 	virtual bool SetNNEInputParams(FNNEModelTTS& NNModel, const FTTSGenerateRequestContext& Context) const override;
 	virtual void PostProcessNND(FSynthesisResult& SynthesisData) const override;
@@ -60,6 +64,7 @@ public:
 	void ImportVoiceFromFile(const FString& FileName);
 	// Delete voice
 	void DeleteSpeaker(int32 SpeakerID);
+	// Delete all voices
 	void DeleteAllSpeakers();
 
 protected:

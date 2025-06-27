@@ -22,6 +22,7 @@
 #include "Containers/Ticker.h"
 #include "Modules/ModuleManager.h"
 #include "LocalTTSModule.h"
+#include "Phonemizer.h"
 
 #include "NNE.h"
 #include "NNEModelData.h"
@@ -32,6 +33,7 @@
 
 FCriticalSection ULocalTTSSubsystem::OnnxLoadMutex;
 
+/*
 #if WITH_EDITOR
 template<typename ElemType>
 FString LocalTtsUtils::PrintArray(const TArray<ElemType>& InData)
@@ -81,6 +83,7 @@ FString LocalTtsUtils::PrintArray(const TArrayView<ElemType>& InData)
 	return s;
 }
 #endif
+*/
 
 void ULocalTTSSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -89,7 +92,8 @@ void ULocalTTSSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	const UTtsSettings* Settings = UTtsSettings::Get();
 	if (Settings->bAutoInitializeOnStartup)
 	{
-		TickDelegateHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &ULocalTTSSubsystem::StartupDelayedInitialize_Internal), 1.5f);
+		//TickDelegateHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &ULocalTTSSubsystem::StartupDelayedInitialize_Internal), 0.5f);
+		StartupDelayedInitialize_Internal(0.f);
 	}
 }
 
@@ -97,6 +101,11 @@ void ULocalTTSSubsystem::Deinitialize()
 {
     Super::Deinitialize();
 	Cleanup();
+}
+
+void ULocalTTSSubsystem::InitializePhonemizer()
+{
+	StartupDelayedInitialize_Internal(0.f);
 }
 
 void ULocalTTSSubsystem::LoadModelTTS(TSoftObjectPtr<UNNEModelData> TTSModelReferene, TSoftObjectPtr<UTTSModelData_Base> TokenizerReferene, const FLocalTTSStatusResponse& OnLoadingComplete)
@@ -159,120 +168,11 @@ void ULocalTTSSubsystem::LoadModelTTS(TSoftObjectPtr<UNNEModelData> TTSModelRefe
 			AsyncTask(ENamedThreads::AnyThread, [this, ModelReferene, ModelId]() mutable
 			{
 				OnnxLoadMutex.TryLock();
-				bool bResult = false;
 				LastAddedModelTag = ModelId;
 
-#if PLATFORM_WINDOWS || PLATFORM_LINUX
-				FString NneRuntimeName = TEXT("NNERuntimeORTCpu");
-#else
-				FString NneRuntimeName = TEXT("NNERuntimeBasicCpu");
-#endif
-				TWeakInterfacePtr<INNERuntimeCPU> Runtime = UE::NNE::GetRuntime<INNERuntimeCPU>(NneRuntimeName);
-				if (Runtime.IsValid())
-				{
-					UNNEModelData* ModelAsset = ModelReferene.Get();
-					auto& ModelData = VoiceModels[ModelId];
-
-					// Load model
-					TSharedPtr<UE::NNE::IModelCPU> Model = Runtime->CreateModelCPU(ModelAsset);
-
-					if (Model.IsValid())
-					{
-						// Create instance
-						ModelData.ModelInstance = Model->CreateModelInstanceCPU();
-						if (ModelData.ModelInstance.IsValid())
-						{
-							// Initialize model instance
-							TConstArrayView<UE::NNE::FTensorDesc> InputTensorDescs = ModelData.ModelInstance->GetInputTensorDescs();
-
-							TArray<UE::NNE::FTensorShape> InputTensorShapes;
-
-							// {"input", "input_lengths", "scales", [ "sid" ] }
-							int32 Index = 0;
-							for (const auto& InShape : InputTensorDescs)
-							{
-								InputTensorShapes.Add(UE::NNE::FTensorShape::MakeFromSymbolic(InShape.GetShape()));
-								const int32 Volume = FMath::Max(1, (int32)InputTensorShapes.Last().Volume());
-
-								ModelData.InputMap.AddDefaulted();
-								ModelData.InputMap[Index].Format = InShape.GetDataType();
-								FString DataTypeStr = StaticEnum<ENNETensorDataType>()->GetNameByValue((int32)InShape.GetDataType()).ToString();
-
-#if WITH_EDITOR
-								FString ShapeDesc = LocalTtsUtils::PrintArray(InShape.GetShape().GetData());
-								UE_LOG(LogTemp, Log, TEXT("InputTensorShapes[%d] has shape (%s) and type %s"), Index, *ShapeDesc, *DataTypeStr);
-#endif
-
-								if (InShape.GetDataType() == ENNETensorDataType::Float)
-								{
-									ModelData.InputDataFloat.AddDefaulted();
-									ModelData.InputDataFloat.Last().SetNumUninitialized(Volume);
-									ModelData.InputMap[Index].ArrayIndex = ModelData.InputDataFloat.Num() - 1;
-								}
-								else //if (InShape.GetDataType() == ENNETensorDataType::Int64)
-								{
-									ModelData.InputDataInt64.AddDefaulted();
-									ModelData.InputDataInt64.Last().SetNumUninitialized(Volume);
-									ModelData.InputMap[Index].ArrayIndex = ModelData.InputDataInt64.Num() - 1;
-								}
-
-								Index++;
-							}
-
-							// No need, tensor shapes are dynamic for our models
-							//ModelData.ModelInstance->SetInputTensorShapes(InputTensorShapes);
-
-							TConstArrayView<UE::NNE::FTensorDesc> OutputTensorDescs = ModelData.ModelInstance->GetOutputTensorDescs();
-							TArray<UE::NNE::FTensorShape> OutputTensorShapes;
-							for (const auto& OutShape : OutputTensorDescs)
-							{
-								OutputTensorShapes.Add(UE::NNE::FTensorShape::MakeFromSymbolic(OutShape.GetShape()));
-							}
-							if (OutputTensorShapes.IsEmpty())
-							{
-								UE_LOG(LogTemp, Error, TEXT("Incorrec NNE Model format!"));
-								return;
-							}
-							ModelData.OutputData.SetNumZeroed(OutputDataBufferSize);
-
-							// Initialize input-output tensors and arrays
-
-							ModelData.InputBindings.SetNumZeroed(ModelData.InputMap.Num());
-							Index = 0;
-							for (const auto& Input : ModelData.InputMap)
-							{
-								if (Input.Format == ENNETensorDataType::Float)
-								{
-									ModelData.InputBindings[Index].Data = ModelData.InputDataFloat[Input.ArrayIndex].GetData();
-									ModelData.InputBindings[Index].SizeInBytes = ModelData.InputDataFloat[Input.ArrayIndex].Num() * sizeof(float);
-								}
-								else
-								{
-									ModelData.InputBindings[Index].Data = ModelData.InputDataInt64[Input.ArrayIndex].GetData();
-									ModelData.InputBindings[Index].SizeInBytes = ModelData.InputDataInt64[Input.ArrayIndex].Num() * sizeof(int64);
-								}
-								Index++;
-							}
-
-							ModelData.OutputBindings.SetNumZeroed(1);
-							ModelData.OutputBindings[0].Data = ModelData.OutputData.GetData();
-							ModelData.OutputBindings[0].SizeInBytes = ModelData.OutputData.Num() * sizeof(float);
-
-							bResult = ModelData.InputMap.Num() > 0 && ModelData.OutputData.Num() > 0;
-							ModelData.bLoaded = bResult;
-							UE_LOG(LogTemp, Log, TEXT("TTS model loading complete. Input num = %d | Output num = %d"), ModelData.InputMap.Num(), ModelData.OutputData.Num());
-						}
-					}
-					else
-					{
-						UE_LOG(LogTemp, Error, TEXT("Couldn't load runtime TTS model"));
-					}
-				}
-				else
-				{
-					UE_LOG(LogTemp, Error, TEXT("Can't find NNE runtime (NNERuntimeORTCpu)"));
-					
-				}
+				auto& ModelData = VoiceModels[ModelId];
+				UNNEModelData* ModelAsset = ModelReferene.Get();
+				bool bResult = ULocalTTSFunctionLibrary::LoadNNM(ModelData, ModelAsset, OutputDataBufferSize, TEXT("TTSModel"));
 
 				AsyncTask(ENamedThreads::GameThread, [this, bResult]()
 				{
@@ -344,32 +244,30 @@ void ULocalTTSSubsystem::Inference()
 	SynthResult.Reset(ActiveRequest.VoiceModelId);
 	SynthResult.SampleRate = VModel.VoiceDesc->SampleRate;
 
-	// Convert text to arrays of phonemes separated by sentences
-	FString PhonemizedText;
-	if (!VModel.VoiceDesc->PhonemizeText(ActiveRequest.Text, PhonemizedText, ActiveRequest.Settings.SpeakerId, SynthResult.PhonemePhrases))
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Failed to phonemize text: %s"), *ActiveRequest.Text);
-		OnGenerationComplete_Internal(false);
-		return;
-	}
-
-	// Prepare memory for 32bit PCM buffer
-	int32 TotalPhonemeCount = 0;
-	for (const auto& PhonemesInPhrase : SynthResult.PhonemePhrases)
-	{
-		TotalPhonemeCount += PhonemesInPhrase.Num();
-	}
-	UE_LOG(LogTemp, Log, TEXT("Phonemized Text: [%s] (%d symbols in total)"), *PhonemizedText, TotalPhonemeCount);
-		
-	int32 SentenceSilenceSamples = (int32)(VModel.VoiceDesc->SentenceSilenceSeconds * (float)VModel.VoiceDesc->SampleRate /* * channel num */);
-	SynthResult.PCMData32.Reserve(PredictOutputBufferSize(TotalPhonemeCount, VModel));
-
 	AsyncTask(ENamedThreads::AnyThread, [this]() mutable
 	{
 		// Current voice vodel
 		auto& VModel = VoiceModels[SynthResult.ModelTag.Id];
+			
+		// Convert text to arrays of phonemes separated by sentences
+		FString PhonemizedText;
+		if (!VModel.VoiceDesc->PhonemizeText(ActiveRequest.Text, PhonemizedText, ActiveRequest.Settings.SpeakerId, SynthResult.PhonemePhrases))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Failed to phonemize text: %s"), *ActiveRequest.Text);
+			OnGenerationComplete_Internal(false);
+			return;
+		}
 
+		// Prepare memory for 32bit PCM buffer
+		int32 TotalPhonemeCount = 0;
+		for (const auto& PhonemesInPhrase : SynthResult.PhonemePhrases)
+		{
+			TotalPhonemeCount += PhonemesInPhrase.Num();
+		}
+		UE_LOG(LogTemp, Log, TEXT("Phonemized Text: [%s] (%d symbols in total)"), *PhonemizedText, TotalPhonemeCount);
+		
 		int32 SentenceSilenceSamples = (int32)(VModel.VoiceDesc->SentenceSilenceSeconds * (float)VModel.VoiceDesc->SampleRate /* * channel num */);
+		SynthResult.PCMData32.Reserve(PredictOutputBufferSize(TotalPhonemeCount, VModel));
 
 		int32 SentenceIndex = -1;
 		for (const auto& PhonemesInPhrase : SynthResult.PhonemePhrases)
@@ -426,8 +324,9 @@ void ULocalTTSSubsystem::Inference()
 			VModel.OutputBindings[0].SizeInBytes = VModel.OutputData.Num() * sizeof(float);
 
 			// 4. Interfere current phrase (sentence)
-			UE::NNE::IModelInstanceRunSync::ERunSyncStatus RunStatus = VModel.ModelInstance->RunSync(VModel.InputBindings, VModel.OutputBindings);
-			if (RunStatus == UE::NNE::IModelInstanceRunSync::ERunSyncStatus::Fail)
+			TArray<float> TTSOutputs;
+			TArray<uint32> TTSOutputsShape;
+			if (!VModel.RunNNE(TTSOutputs, TTSOutputsShape, false)) // no need to copy to TTSOutputs
 			{
 				UE_LOG(LogTemp, Warning, TEXT("Failed to run NNE."));
 				OnGenerationComplete_Internal(false);
@@ -435,9 +334,7 @@ void ULocalTTSSubsystem::Inference()
 			}
 
 			// 5. Read output
-			const auto OutDataShapes = VModel.ModelInstance->GetOutputTensorShapes();
-			check(OutDataShapes.Num() == 1);
-			int32 GeneratedSamplesNum = OutDataShapes.GetData()->Volume();
+			int32 GeneratedSamplesNum = VModel.ModelInstance->GetOutputTensorShapes().GetData()->Volume();
 
 			// Push output into PCMData32 buffer
 			if (GeneratedSamplesNum == 0)
@@ -453,6 +350,7 @@ void ULocalTTSSubsystem::Inference()
 			else if (GeneratedSamplesNum > 0)
 			{
 				SynthResult.AudioSeconds += (float)GeneratedSamplesNum / (float)VModel.VoiceDesc->SampleRate;
+				UE_LOG(LogTemp, Log, TEXT("Total generated audio size: %f seconds"), SynthResult.AudioSeconds);
 				int32 StartOffset = SynthResult.PCMData32.Num() * (int32)sizeof(float);
 				SynthResult.PCMData32.AddUninitialized(GeneratedSamplesNum);
 				FMemory::Memcpy((uint8*)SynthResult.PCMData32.GetData() + StartOffset, (const uint8*)VModel.OutputData.GetData(), GeneratedSamplesNum * (int32)sizeof(float));
@@ -464,7 +362,6 @@ void ULocalTTSSubsystem::Inference()
 					SynthResult.AudioSeconds += VModel.VoiceDesc->SentenceSilenceSeconds;
 					SynthResult.PCMData32.AddZeroed(SentenceSilenceSamples);
 				}
-				//UE_LOG(LogTemp, Log, TEXT("NNM generated %d samples of audio. Start offset=%d. Total generated duration in seconds: %f"), GeneratedSamplesNum, StartOffset, (float)SynthResult.AudioSeconds);
 			}
 		}
 
@@ -546,8 +443,12 @@ bool ULocalTTSSubsystem::ReleaseModel(const FNNMInstanceId& ModelTag)
 
 bool ULocalTTSSubsystem::StartupDelayedInitialize_Internal(float DeltaTime)
 {
-	FTSTicker::GetCoreTicker().RemoveTicker(TickDelegateHandle);
+	if (TickDelegateHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(TickDelegateHandle);
+	}
 
+#if ESPEAK_NG
 	FString ContentPath = FLocalTTSModule::GetContentPath() / TEXT("NonUFS/espeak-ng-data");
 	UE_LOG(LogTemp, Log, TEXT("eSpeak data path: %s"), *ContentPath);
 	if (PlatformFileUtils::DirectoryExists(ContentPath))
@@ -573,6 +474,19 @@ bool ULocalTTSSubsystem::StartupDelayedInitialize_Internal(float DeltaTime)
 		bEspeakStatus = false;
 	}
 
+#else
+	const UTtsSettings* Settings = UTtsSettings::Get();
+	if (!Settings->PhonemizerInfo.IsNull())
+	{
+		Phonemizer = Settings->PhonemizerInfo.LoadSynchronous();
+		if (IsValid(Phonemizer))
+		{
+			Phonemizer->SyncLoadModel(Settings->PhonemizerEncoder, Settings->PhonemizerDecoder);
+			bEspeakStatus = true;
+		}
+	}
+#endif
+
 	return bEspeakStatus;
 }
 
@@ -583,6 +497,19 @@ void ULocalTTSSubsystem::OnModelLoadingComplete_Internal(bool bResult)
 		bIsLoading = false;
 		OnnxLoadMutex.Unlock();
 		OnLastLoadCallback.ExecuteIfBound(LastAddedModelTag, bResult);
+		
+		// Try to load dictionary beforehand
+		if (IsValid(Phonemizer))
+		{
+			if (VoiceModels.Contains(LastAddedModelTag.Id))
+			{
+				UTTSModelData_Base* ModelData = VoiceModels[LastAddedModelTag.Id].VoiceDesc;
+				if (IsValid(ModelData) && ModelData->PhonemizationType == ETTSPhonemeType::PT_Dictionary)
+				{
+					Phonemizer->PrepareDictionary(ModelData->GetEspeakCode(0));
+				}
+			}
+		}
 	}
 	else
 	{

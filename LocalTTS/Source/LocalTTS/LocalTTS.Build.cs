@@ -19,17 +19,22 @@ public class LocalTTS : ModuleRules
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicIncludePaths.AddRange(
+		// **************************************************
+		// ESPEAK-NG LIBRARY
+		bool bUseEspeak = true;
+        // ESPEAK-NG LIBRARY
+        // **************************************************
+
+        PublicIncludePaths.AddRange(
 			new string[] {
 				// ... add public include paths required here ...
-				//Path.Combine(ThirdPartyEspeak, "Include"),
-				Path.Combine(ThirdPartyUni, "Include")
-			}
-			);
+				Path.Combine(ThirdPartyUni, "Include"),
+                Path.Combine(ModuleDirectory, "../ThirdParty/miniz")
+            }
+		);
         if (Target.Platform == UnrealTargetPlatform.Android)
 		{
 			PublicIncludePaths.Add(Path.Combine(ThirdPartyEspeak, "Include"));
-
         }
 
 		PublicDependencyModuleNames.AddRange(
@@ -41,8 +46,6 @@ public class LocalTTS : ModuleRules
 			}
 			);
 
-		//PublicDependencyModuleNames.Add("espeak");
-
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
@@ -52,9 +55,7 @@ public class LocalTTS : ModuleRules
 				"SlateCore",
 				"Json",
 				"AudioPlatformConfiguration",
-                //"SignalProcessing",
                 "AudioExtensions"
-				// ... add private dependencies that you statically link with here ...	
 			}
 			);
 
@@ -62,44 +63,58 @@ public class LocalTTS : ModuleRules
 		DynamicallyLoadedModuleNames.AddRange(
 			new string[]
 			{
-				// ... add any modules that your module loads dynamically here ...
 			}
 			);
 
-		if (Target.Platform == UnrealTargetPlatform.Win64)
+		if (bUseEspeak)
 		{
-			// copy all DLLs to the packaged build
-			if (!Target.bBuildEditor && Target.Type == TargetType.Game)
+			if (Target.Platform == UnrealTargetPlatform.Win64)
 			{
-                string BinariesPath = Path.Combine(ThirdPartyEspeak, "Binaries", "Win64");
-                string DllDestinationDir = "$(ProjectDir)/Binaries/ThirdParty/espeak";
-
-                string[] DLLs = { "libespeak-ng.dll" };
-
-                // Copy DLLs to the target project's executable directory
-                foreach (string FileName in DLLs)
-                {
-                    RuntimeDependencies.Add(Path.Combine(DllDestinationDir, FileName), Path.Combine(BinariesPath, FileName));
-                }
+				PublicDefinitions.Add("ESPEAK_NG=1");
 			}
-
-            if (!Target.bBuildEditor)
-            {
-                string PluginContentPath = Path.GetFullPath(Path.Combine(ModuleDirectory, "../../Content/NonUFS/espeak-ng-data/*"));
-                string ProjectContentPath = "$(ProjectDir)/Content/NonUFS/espeak-ng-data/*";
-                RuntimeDependencies.Add(ProjectContentPath, PluginContentPath, StagedFileType.NonUFS);
+			else
+			{
+                PublicDefinitions.Add("ESPEAK_NG=0");
             }
-        }
-		else if (Target.Platform == UnrealTargetPlatform.Android)
+            if (Target.Platform == UnrealTargetPlatform.Win64)
+			{
+				// copy all DLLs to the packaged build
+                if (!Target.bBuildEditor && Target.Type == TargetType.Game)
+				{
+					string BinariesPath = Path.Combine(ThirdPartyEspeak, "Binaries", "Win64");
+					string DllDestinationDir = "$(ProjectDir)/Binaries/ThirdParty/espeak";
+
+					string[] DLLs = { "libespeak-ng.dll" };
+
+					// Copy DLLs to the target project's executable directory
+					foreach (string FileName in DLLs)
+					{
+						RuntimeDependencies.Add(Path.Combine(DllDestinationDir, FileName), Path.Combine(BinariesPath, FileName));
+					}
+				}
+
+				if (!Target.bBuildEditor)
+				{
+					string PluginContentPath = Path.GetFullPath(Path.Combine(ModuleDirectory, "../../Content/NonUFS/espeak-ng-data/*"));
+					string ProjectContentPath = "$(ProjectDir)/Content/NonUFS/espeak-ng-data/*";
+					RuntimeDependencies.Add(ProjectContentPath, PluginContentPath, StagedFileType.NonUFS);
+				}
+			}
+			else if (Target.Platform == UnrealTargetPlatform.Android)
+			{
+				// Add UPL to add configrules.txt to our APK
+				string ModulePath = Utils.MakePathRelativeTo(ModuleDirectory, Target.RelativeEnginePath);
+				AdditionalPropertiesForReceipt.Add("AndroidPlugin", Path.Combine(ModulePath, "LocalTTS_UPL.xml"));
+
+				string AndroidLibPath = Path.Combine(ThirdPartyEspeak, "Binaries", "Android");
+				string Architecture = "arm64-v8a"; // Target.Architecture.ToString()
+
+				PublicAdditionalLibraries.Add(Path.Combine(AndroidLibPath, Architecture, "libttsespeak.so"));
+			}
+		}
+		else
 		{
-            // Add UPL to add configrules.txt to our APK
-            string ModulePath = Utils.MakePathRelativeTo(ModuleDirectory, Target.RelativeEnginePath);
-            AdditionalPropertiesForReceipt.Add("AndroidPlugin", Path.Combine(ModulePath, "LocalTTS_UPL.xml"));
-
-            string AndroidLibPath = Path.Combine(ThirdPartyEspeak, "Binaries", "Android");
-			string Architecture = "arm64-v8a"; // Target.Architecture.ToString()
-
-            PublicAdditionalLibraries.Add(Path.Combine(AndroidLibPath, Architecture, "libttsespeak.so"));
+            PublicDefinitions.Add("ESPEAK_NG=0");
         }
     }
 }

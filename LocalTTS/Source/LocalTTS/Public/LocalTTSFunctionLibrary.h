@@ -9,13 +9,13 @@
 #include "LocalTTSFunctionLibrary.generated.h"
 
 /**
- * Helper functions for LocalTTS subsystem
+ * Functions for LocalTTS subsystem
  */
 UCLASS()
 class LOCALTTS_API ULocalTTSFunctionLibrary : public UBlueprintFunctionLibrary
 {
 	GENERATED_BODY()
-	
+
 public:
 	// Save 16-bit audio buffer to .wav file
 	UFUNCTION(BlueprintCallable, Category = "Local TTS")
@@ -29,15 +29,26 @@ public:
 	static int32 GetModelSpeakerByName(const FNNMInstanceId& ModelID, const FString& SpeakerName);
 
 	// Check if the model is loaded
-	UFUNCTION(BlueprintPure, meta=(DisplayName="Is TTS Model Loaded"), Category = "Local TTS")
+	UFUNCTION(BlueprintPure, meta = (DisplayName = "Is TTS Model Loaded"), Category = "Local TTS")
 	static bool IsTtsModelLoaded(const FNNMInstanceId& ModelID);
 
 	// Get TTSModelData asset related to the loaded model by tag
-	UFUNCTION(BlueprintPure, meta=(DisplayName="Get TTS Model Data Asset"), Category = "Local TTS")
+	UFUNCTION(BlueprintPure, meta = (DisplayName = "Get TTS Model Data Asset"), Category = "Local TTS")
 	static class UTTSModelData_Base* GetTtsModelDataAsset(const FNNMInstanceId& ModelID);
 
 	// Release from memory already loaded NNE model
-	UFUNCTION(BlueprintCallable, meta=(DisplayName="Release TTS Model"), Category = "Local TTS")
+	UFUNCTION(BlueprintCallable, meta = (DisplayName = "Release TTS Model"), Category = "Local TTS")
 	static bool ReleaseTtsModel(const FNNMInstanceId& ModelID);
+
+	// Helper function to cleanup csv datasets for g2p model training
+	UFUNCTION(BlueprintCallable, Category = "Local TTS")
+	static void Util_PhonemizeDictionaries();
+
+	// Helper function to cleanup csv datasets for g2p model training
+	UFUNCTION(BlueprintCallable, Category = "Local TTS")
+	static void Util_PhonemizeDictionariesToTrainG2P();
+
+	// Helper function to load NNE model with input/output data to FNNEModelTTS
+	static bool LoadNNM(FNNEModelTTS& ModelData, class UNNEModelData* ModelAsset, int32 OutputDataSize, FString Header);
 };
 

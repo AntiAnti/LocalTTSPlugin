@@ -8,8 +8,6 @@
 #include "DSP/AlignedBuffer.h"
 #include "LocalTTSTypes.generated.h"
 
-//DECLARE_LOG_CATEGORY_EXTERN(LogLocalTTS, Log, All);
-
 class UNNEModelData;
 class UTTSModelData_Base;
 
@@ -40,9 +38,8 @@ UENUM(BlueprintType)
 enum class ETTSPhonemeType : uint8
 {
 	PT_eSpeak				UMETA(DisplayName = "eSpeak"),
-	PT_Tashkeel				UMETA(DisplayName = "Tashkeel"),
-	PT_Misaki				UMETA(DisplayName = "Misaki"),
-	PT_TextPhoneme			UMETA(DisplayName = "Text")
+	PT_Dictionary			UMETA(DisplayName = "Dictionary + G2P NNM"),
+	PT_NNM					UMETA(DisplayName = "G2P NNM")
 };
 
 // Container for NNM instance key in ULocalTTSSubsystem
@@ -94,35 +91,49 @@ public:
 	TObjectPtr<UTTSModelData_Base> VoiceDesc = nullptr;
 	FString ModelAssetName;
 
-	// NN Setup
+	// NNE Setup
+
+	// NNE Model
 	TSharedPtr<UE::NNE::IModelInstanceCPU> ModelInstance;
+	// Inputs
 	TArray<UE::NNE::FTensorBindingCPU> InputBindings;
+	// Outputs (just one, just float)
 	TArray<UE::NNE::FTensorBindingCPU> OutputBindings;
-	UE::NNE::FTensorShape DefaultInputShape;
-	UE::NNE::FTensorShape DefaultOutputShape;
+
+	// Tensor buffers
 
 	// Universal input mapping
-	// Actual piper inputs: {"input" (int64), "input_lengths" (int64), "scales" (float), [ "sid" (int64) ] }
 	TArray<FNNEModelInputBinding> InputMap;
 	TArray<TArray<float>> InputDataFloat;
 	TArray<TArray<int64>> InputDataInt64;
 	// Outputs
 	TArray<float> OutputData;
+	// Shapes applied before RunSync
+	TArray<UE::NNE::FTensorShape> InputTensorShapes;
 
+	// Model is loaded
 	bool bLoaded = false;
 
+	// Using GUID for operator==
 	FNNEModelTTS() : Guid(FGuid::NewGuid()) {}
 
-	bool operator==(const FNNEModelTTS& Other) const
-	{
-		return Guid == Other.Guid;
-	}
-
+	bool operator==(const FNNEModelTTS& Other) const { return Guid == Other.Guid; }
 	FString GetGUID() const { return Guid.ToString(); }
 
+	// Get reference to input tensor by Index
 	TArray<int64>& GetInParamIntUnsafe(const int32 Index);
+	// Get reference to input tensor by Index
 	TArray<float>& GetInParamFloatUnsafe(const int32 Index);
+	// Get if input exists
 	bool CheckInParam(const int32 Index, ENNETensorDataType Type) const;
+	// Reserve memory for RunSync output
+	void PrepareOutputBuffer(int32 Size);
+
+	// Set input parameters
+	bool PrepareInputFloat(int32 Index, const TArray<float>& Data, const TArrayView<const uint32>& Shape);
+	bool PrepareInputInt64(int32 Index, const TArray<int64>& Data, const TArrayView<const uint32>& Shape);
+	// Run and get output tensor
+	bool RunNNE(TArray<float>& OutData, TArray<uint32>& OutDataShape, bool bReturnData = true);
 };
 
 /**

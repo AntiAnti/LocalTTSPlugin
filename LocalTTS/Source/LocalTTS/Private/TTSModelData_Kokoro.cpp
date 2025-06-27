@@ -1,4 +1,4 @@
-// (c) Yuri N. K. 2025. All rights reserved.
+﻿// (c) Yuri N. K. 2025. All rights reserved.
 // ykasczc@gmail.com
 
 #include "TTSModelData_Kokoro.h"
@@ -13,9 +13,14 @@
 
 UTTSModelData_Kokoro::UTTSModelData_Kokoro()
 {
+#if ESPEAK_NG
+    PhonemizationType = ETTSPhonemeType::PT_eSpeak;
+#else
+    PhonemizationType = ETTSPhonemeType::PT_Dictionary;
+#endif
     SampleRate = 24000;
-    BaseSynthesisSpeedMultiplier = 3.f;
     SentenceSilenceSeconds = 0.f;
+    BaseSynthesisSpeedMultiplier = 3.f;
 }
 
 FString UTTSModelData_Kokoro::GetEspeakCode(int32 SpeakerId) const
@@ -30,12 +35,13 @@ FString UTTSModelData_Kokoro::GetEspeakCode(int32 SpeakerId) const
     }
 }
 
-bool UTTSModelData_Kokoro::PhonemizeText(const FString& InText, FString& OutText, int32 SpeakerId, TArray<TArray<Piper::PhonemeUtf8>>& Phonemes)
+bool UTTSModelData_Kokoro::PhonemizeText(const FString& InText, FString& OutText, int32 SpeakerId, TArray<TArray<Piper::PhonemeUtf8>>& Phonemes, bool bCastCharactersAsWords)
 {
     const int32 MaxTokensInBatch = bInterspersePad ? 240 : 480;
 
+    bCastCharactersAsWords = bSplitChinese && GetEspeakCode(SpeakerId) == TEXT("cmn");
     TArray<TArray<Piper::PhonemeUtf8>> TempBatches;
-    bool bResult = Super::PhonemizeText(InText, OutText, SpeakerId, TempBatches);
+    bool bResult = Super::PhonemizeText(InText, OutText, SpeakerId, TempBatches, bCastCharactersAsWords);
 
     // Don't separate sentences, but keep tokens num below 510
     if (bResult)
@@ -176,16 +182,10 @@ bool UTTSModelData_Kokoro::SetNNEInputParams(FNNEModelTTS& NNModel, const FTTSGe
     }
 
     int32 TokensNum = Context.Tokens->Num();
-    TArray<UE::NNE::FTensorShape> InputShapes;
 
     // inputs
     // shape (1, -1)   type Int64			phonemized tokens
-    TArray<int64>& Inputs = NNModel.GetInParamIntUnsafe(0);
-    Inputs.SetNumUninitialized(TokensNum);
-    FMemory::Memcpy(Inputs.GetData(), Context.Tokens->GetData(), TokensNum * (int32)sizeof(int64));
-    InputShapes.Add(UE::NNE::FTensorShape::Make({ 1, (uint32)Inputs.Num() }));
-    NNModel.InputBindings[0].SizeInBytes = (uint64)Inputs.Num() * sizeof(int64);
-    NNModel.InputBindings[0].Data = Inputs.GetData();
+    NNModel.PrepareInputInt64(0, *Context.Tokens, { 1, (uint32)TokensNum });
 
     // voice
     // shape (1, 256)  type Float			voice
@@ -202,20 +202,13 @@ bool UTTSModelData_Kokoro::SetNNEInputParams(FNNEModelTTS& NNModel, const FTTSGe
         UE_LOG(LogTemp, Warning, TEXT("Invalid SpeakerId: %d"), Context.SpeakerId);
         return false;
     }
-
-    InputShapes.Add(UE::NNE::FTensorShape::Make({ 1, 256 }));
     NNModel.InputBindings[1].SizeInBytes = (uint64)256 * (uint64)sizeof(float);
     NNModel.InputBindings[1].Data = Voice.GetData();
+    NNModel.InputTensorShapes[1] = UE::NNE::FTensorShape::Make({ 1, 256 });
 
     // speed
-    // shape(1)       type Float			speed 1.0
-    TArray<float>& ScaleInp = NNModel.GetInParamFloatUnsafe(2);
-    ScaleInp = { Speed };
-    InputShapes.Add(UE::NNE::FTensorShape::Make({ 1 }));
-    NNModel.InputBindings[2].SizeInBytes = sizeof(float);
-    NNModel.InputBindings[2].Data = ScaleInp.GetData();
+    NNModel.PrepareInputFloat(2, { Speed }, { 1 });
 
-    NNModel.ModelInstance->SetInputTensorShapes(InputShapes);
     return true;
 }
 

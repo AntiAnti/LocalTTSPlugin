@@ -15,6 +15,7 @@ class LOCALTTS_API UTtsSettings : public UObject
 	GENERATED_BODY()
 
 public:
+	UTtsSettings();
 
 	// For any loaded model, should resample generated audio to TargetSampleRate?
 	UPROPERTY(GlobalConfig, EditAnywhere, Category = "Synthesis")
@@ -31,6 +32,18 @@ public:
 	// Init espeak tokenizer when starting UE
 	UPROPERTY(GlobalConfig, EditAnywhere, Category = "Synthesis")
 	bool bAutoInitializeOnStartup = true;
+
+	// ONNX encoder of the G2P NNE model
+	UPROPERTY(GlobalConfig, EditAnywhere, Category = "Synthesis")
+	TSoftObjectPtr<class UNNEModelData> PhonemizerEncoder;
+
+	// ONNX decoder of the G2P NNE model
+	UPROPERTY(GlobalConfig, EditAnywhere, Category = "Synthesis")
+	TSoftObjectPtr<class UNNEModelData> PhonemizerDecoder;
+
+	// Phonemizer asset
+	UPROPERTY(GlobalConfig, EditAnywhere, Category = "Synthesis")
+	TSoftObjectPtr<class UPhonemizer> PhonemizerInfo;
 
 	static const UTtsSettings* Get();
 };

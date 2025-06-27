@@ -34,6 +34,8 @@ class LOCALTTS_API UTTSModelData_Base : public UDataAsset
 	GENERATED_BODY()
 
 public:
+	UTTSModelData_Base();
+
 	// Speakers (voices) supported by this model, if it supports more than one, with corresponding IDs (speaker tokens)
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Model")
 	TMap<FString, int32> Speakers;
@@ -74,12 +76,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tokenizer")
 	TMap<FString, FTokensArrayWrapper> TokenToId;
 
-	// Only eSpeak phonemization is supported!
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Tokenizer")
-	ETTSPhonemeType PhonemeType = ETTSPhonemeType::PT_eSpeak;
+	// eSpeak phonemization is supported only in non-commercial version (due to GPL-3.0 limitations), and NN/dicrionaries is supported only in the Fab version
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tokenizer")
+	ETTSPhonemeType PhonemizationType;
 
 	// Universal function to generate phonemes splitted by sentences
-	virtual bool PhonemizeText(const FString& InText, FString& OutText, int32 SpeakerId, TArray<TArray<Piper::PhonemeUtf8>>& Phonemes);
+	virtual bool PhonemizeText(const FString& InText, FString& OutText, int32 SpeakerId, TArray<TArray<Piper::PhonemeUtf8>>& Phonemes, bool bCastCharactersAsWords = false);
 
 	// Get phonemization code (usually eSpeakVoiceCode, but can be overriden for multilangual models)
 	virtual FString GetEspeakCode(int32 SpeakerId) const;
